@@ -1,0 +1,34 @@
+# Git files
+.git
+.gitignore
+
+# Virtual env
+.venv/
+.env*
+.python-version
+
+# Developer tools
+.ruff_cache/
+.pytest_cache/
+.pre-commit-config.yaml
+commitlint.config.mjs
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+
+# Github
+.github/
+
+# documentation
+docs/
+
+# tests, related fixtures and utils
+tests/
+
+# Claude Code
+.claude/
+CLAUDE.md
