@@ -1,0 +1,22 @@
+# Virtual env
+.venv/
+.env*
+!.env*.example
+
+# Ruff cache
+.ruff_cache/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Claude Code: personal files (do not commit)
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,0 +1,83 @@
+[project]
+name = "message-router"
+version = "0.1.0"
+description = "AI agent routing messages to departments via tool calling"
+readme = "README.md"
+authors = [
+  { name = "FilipWojszczak", email = "62936153+FilipWojszczak@users.noreply.github.com" },
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.1",
+  "pre-commit>=4.7.0",
+  "pyright>=1.1.414",
+  "pytest>=9.2.0",
+  "pytest-asyncio>=1.4.1.post1",
+  "ruff>=0.17.4",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+# Specify the source directories to lint and exclude common directories that shouldn't be linted
+src = ["src", "tests"]
+# Honour the excludes even for explicitly passed paths (editors, hooks), as pre-commit does.
+force-exclude = true
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors (standard formatting errors)
+  "W",     # pycodestyle warnings
+  "F",     # pyflakes (unused variables, imports, etc.)
+  "I",     # isort (automatic import sorting)
+  "N",     # pep8-naming (enforces naming conventions)
+  "B",     # flake8-bugbear (detects common errors and pitfalls in Python)
+  "S",     # flake8-security (finds security issues in code)
+  "UP",    # pyupgrade (automatically upgrades syntax for newer Python versions)
+  "SIM",   # flake8-simplify (suggests code simplifications)
+  "RUF",   # Ruff-specific rules
+  "ASYNC", # flake8-async (detects errors in async code - important in FastAPI)
+  "INP",   # flake8-no-pep420 (every package needs an __init__.py)
+]
+ignore = []
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+# Group imports from the app together, separating them from standard and third-party libraries
+known-first-party = ["message_router"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+# Uses existing trailing commas as an indication that short lines should be left separate
+skip-magic-trailing-comma = false
+# Formats code in docstrings
+docstring-code-format = true
+line-ending = "auto"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--strict-markers"
+markers = [
+  "unit: no external dependencies (fakes only)",
+  "e2e: requires the running docker compose stack",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "S101", # asserts
+]
