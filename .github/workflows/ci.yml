@@ -41,4 +41,9 @@ jobs:
       - name: Run tests
         run: uv run pytest -m "not e2e"
 
-      # TODO: add `docker compose config -q` here together with docker-compose.yml
+      - name: Validate docker-compose.yml
+        run: docker compose config -q # Runs without .env, like a fresh clone
+
+      # e2e tests stay out of CI: they need the full stack and the downloaded model
+      - name: Build API image
+        run: docker compose build api # Catches Dockerfile breakage and uv.lock drift (uv sync --locked)

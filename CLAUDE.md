@@ -9,7 +9,8 @@ is required, not optional). Emails are captured by MailHog.
 
 ### Hard constraints
 
-- Containers only: API on an official `python` image, `mailhog/mailhog`, `ollama/ollama`.
+- Containers only: API on an official `python` image, `mailhog/mailhog`, and Ollama on
+  `alpine/ollama` (CPU-only build, ~44 MB download) or `ollama/ollama` (8.5 GB locally).
 - Departments: human-resources@, help-desk@, it@, kadry@ (all @example.com);
   `other@example.com` is the fallback.
 - The sent email must have `Reply-To` set to the requester's email.
@@ -53,6 +54,21 @@ is required, not optional). Emails are captured by MailHog.
 - Fast tests (offline, no Docker): `uv run pytest -m "not e2e" -x -q`
 - Single test: `uv run pytest tests/path/test_file.py::test_name -x -q`
 - All pre-commit hooks: `uv run pre-commit run --all-files`
+- e2e tests (need the running stack): `uv run pytest -m e2e -q`
+
+Docker:
+
+- Start the stack: `docker compose up -d` (first run builds the API image and pulls the
+  model: minutes)
+- Start and wait until healthy: `docker compose up -d --wait`
+- Rebuild the API after code changes: `docker compose up -d --build api`
+- Status, including the one-shot model pull: `docker compose ps -a`
+- Logs: `docker compose logs -f api`, `docker compose logs ollama-pull`
+- Validate compose: `docker compose config -q`
+- Stop, keeping the model: `docker compose down`
+- Stop and **delete the downloaded model**: `docker compose down -v`
+- Host run (uses the native Ollama on `localhost:11434`; no SMTP):
+  `OLLAMA_MODEL=qwen3:0.6b uv run uvicorn message_router.main:app --reload`
 
 There are no `llm` tests in this project: the only model is local Ollama, used by `e2e` tests.
 

@@ -1,0 +1,119 @@
+# No top-level `name:`: the project name is the clone's directory name, so separate
+# clones get separate containers and volumes.
+
+# Container wiring shared by `api` and `ollama-pull`.
+x-ollama-url: &ollama-url http://ollama:11434
+# The single source of the model-name default (Settings has none).
+x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3:0.6b}
+# Probes run every second during start_period; the first success marks the service healthy.
+x-healthcheck-timing: &healthcheck-timing
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+  start_interval: 1s
+
+services:
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"      # loopback only: Docker port rules bypass ufw
+    environment:
+      OLLAMA_URL: *ollama-url
+      OLLAMA_MODEL: *ollama-model
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+      mailhog:
+        condition: service_healthy
+    healthcheck:
+      # python:3.14-slim has no curl/wget; any exception means a non-zero exit.
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=2)"
+      <<: *healthcheck-timing
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    platform: linux/amd64          # amd64-only image; emulated on Apple Silicon
+    ports:
+      - "127.0.0.1:8025:8025"      # UI + HTTP API; SMTP 1025 stays internal
+    healthcheck:
+      # SMTP (what the API needs) and the UI/API (what you and e2e tests need).
+      test: ["CMD-SHELL", "nc -z localhost 1025 && wget -q --spider http://localhost:8025/api/v2/messages"]
+      <<: *healthcheck-timing
+
+  ollama:
+    image: alpine/ollama:0.40.15     # CPU-only build; port 11434 stays internal
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      <<: *healthcheck-timing
+
+  # One-shot: makes the `ollama` server pull the model into its volume, then exits.
+  # Same base image as the API, so no extra download. The script must not contain a
+  # dollar sign: Compose would interpolate it from the host shell.
+  ollama-pull:
+    image: python:3.14-slim
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import json, os, socket, sys, urllib.error, urllib.request
+
+        base = os.environ["OLLAMA_URL"]
+        model = os.environ["OLLAMA_MODEL"]
+
+
+        def post(path, body, timeout):
+            req = urllib.request.Request(
+                base + path,
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            return urllib.request.urlopen(req, timeout=timeout)
+
+
+        # 1. Already present? /api/show is local, works offline.
+        try:
+            post("/api/show", {"model": model}, timeout=10).close()
+            print(f"Model {model} already present, skipping pull.")
+            sys.exit(0)
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+
+        # 2. Preflight: a pull hangs without internet, so fail fast instead.
+        try:
+            socket.create_connection(("registry.ollama.ai", 443), timeout=5).close()
+        except OSError as e:
+            sys.exit(f"ERROR: model {model} is missing and registry.ollama.ai is unreachable ({e}).")
+
+        # 3. Pull via the server; stream progress, print each new status once.
+        #    No timeout: large models on slow links legitimately take long.
+        print(f"Pulling {model} ...", flush=True)
+        last = None
+        with post("/api/pull", {"model": model}, timeout=None) as resp:
+            for line in resp:
+                msg = json.loads(line)
+                if "error" in msg:
+                    sys.exit(f"ERROR: pull failed: {msg['error']}")
+                if msg.get("status") != last:
+                    last = msg.get("status")
+                    print(last, flush=True)
+        if last != "success":
+            sys.exit(f"ERROR: pull ended without success (last status: {last}).")
+    environment:
+      OLLAMA_URL: *ollama-url
+      OLLAMA_MODEL: *ollama-model
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  ollama-models:
