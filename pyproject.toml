@@ -7,7 +7,11 @@ authors = [
   { name = "FilipWojszczak", email = "62936153+FilipWojszczak@users.noreply.github.com" },
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+  "fastapi>=0.162.6",
+  "pydantic-settings>=2.16.3",
+  "uvicorn>=0.54.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.8,<0.14.0"]
@@ -15,7 +19,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-  "httpx>=0.28.1",
+  "httpx2>=2.16.0",
   "pre-commit>=4.7.0",
   "pyright>=1.1.414",
   "pytest>=9.2.0",
