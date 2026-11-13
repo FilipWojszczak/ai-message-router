@@ -485,8 +485,10 @@ e2e tests stay out of CI: they need the full stack and the downloaded model.
    `up` blocks. There is deliberately no overall timeout, because a large model on a slow
    link legitimately takes long. Diagnose with `docker compose logs -f ollama-pull`; Ctrl+C
    is safe. Known limitation.
-4. **Interrupted pull.** Ollama keeps partial blobs and should resume on the next `up`.
-   Not verified (open question 2).
+4. **Interrupted pull.** Ollama keeps partial blobs and resumes on the next pull. Verified
+   on `alpine/ollama:0.40.15`: `ollama pull qwen3:1.7b` killed at 128 MB of 1.4 GB, and the
+   second pull started at 132 MB. Tested with the CLI client killed, not the `ollama-pull`
+   script, which uses the same server endpoint.
 5. **`OLLAMA_MODEL` changed.** The API is recreated (its env changed) and `ollama-pull`
    pulls the new model. The old one stays in the volume until
    `docker compose exec ollama ollama rm <old>`.
@@ -644,8 +646,8 @@ healthy.
 1. **Apple Silicon:** MailHog under `platform: linux/amd64` emulation is unverified (no Mac
    here). The hard constraint leaves no fallback image, so a failure there would need a
    decision on the constraint itself.
-2. **Interrupted pulls:** does Ollama 0.40.16 resume partial blobs? Check during
-   implementation by pressing Ctrl+C mid-pull and running `up` again.
+2. **Interrupted pulls:** resolved. Verified on `alpine/ollama:0.40.15` that a killed pull
+   leaves partial blobs and the next pull resumes (see edge case 4).
 3. **Pull hang with a partially blocked network** (registry reachable, CDN not): revisit
    only if it shows up in practice.
 4. **Stage 4:** model warm-up, `OLLAMA_KEEP_ALIVE`, LLM timeouts, and whether to disable
