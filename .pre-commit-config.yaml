@@ -1,0 +1,62 @@
+default_stages: [pre-commit]
+# Plain `pre-commit install` on a fresh clone installs both git hooks (commitlint runs at commit-msg)
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # Common pre-commit hooks for general code hygiene and best practices
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      # Prevent committing large files that might have been added by mistake
+      - id: check-added-large-files
+      - id: check-toml
+      # Never commit directly to main/master; work on feature branches
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
+
+  # Block commits that contain secrets (API keys, tokens, private keys), whoever staged them
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # Linting YAML files
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        # Uses -d to specify a custom configuration inline instead of a separate .yamllint file
+        # This configuration uses the "relaxed" preset but overrides the line-length rule to allow lines up to 120 characters
+        args: ["-d", "{extends: relaxed, rules: {line-length: {max: 120}}}"]
+
+  # Formatting and linting TOML files
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+
+  # Dockerfile analysis and best practices
+  - repo: https://github.com/coatl-dev/hadolint-coatl
+    rev: 2.15.1
+    hooks:
+      - id: hadolint
+
+  # Python code formatting and linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the ruff version in uv.lock, so the hook and `uv run ruff` agree
+    rev: v0.17.5
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+
+  # Commit message linting using conventional commit standards
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.27.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies: ['@commitlint/config-conventional']

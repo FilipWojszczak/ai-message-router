@@ -1,0 +1,44 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# Least-privilege token: the jobs only need to read the repository
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # Fail fast instead of burning the default 6-hour limit on a hung step
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7 # Checkout the repository to the GitHub Actions runner
+
+      # Installs uv; uv then downloads the Python version from .python-version by itself
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock # Cache dependencies based on the uv.lock file (not pyproject.toml and others, which may change more frequently)
+
+      - name: Install dependencies
+        run: uv sync --frozen # Flag --frozen ensures that the exact versions specified in uv.lock are installed, preventing updating it based on pyproject.toml changes
+
+      - name: Check formatting with Ruff
+        run: uv run ruff format --check . # Check code formatting with Ruff, using --check to only report issues without modifying files
+
+      - name: Lint code with Ruff
+        run: uv run ruff check --output-format=github . # Use --output-format=github to format linting results in a way that GitHub can parse and display inline in the pull request
+
+      - name: Type check with Pyright
+        run: uv run pyright
+
+      - name: Run tests
+        run: uv run pytest -m "not e2e"
+
+      # TODO: add `docker compose config -q` here together with docker-compose.yml
