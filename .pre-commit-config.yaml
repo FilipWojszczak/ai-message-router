@@ -49,7 +49,7 @@ repos:
     # Keep in sync with the ruff version in uv.lock, so the hook and `uv run ruff` agree
     rev: v0.17.5
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: ["--fix"]
       - id: ruff-format
 
