@@ -9,7 +9,8 @@ is required, not optional). Emails are captured by MailHog.
 
 ### Hard constraints
 
-- Containers only: API on an official `python` image, `mailhog/mailhog`, `ollama/ollama`.
+- Containers only: API on an official `python` image, `mailhog/mailhog`, and Ollama on
+  `alpine/ollama` (CPU-only build, ~44 MB download) or `ollama/ollama` (8.5 GB locally).
 - Departments: human-resources@, help-desk@, it@, kadry@ (all @example.com);
   `other@example.com` is the fallback.
 - The sent email must have `Reply-To` set to the requester's email.
