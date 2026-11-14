@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     # Required; the default lives only in docker-compose.yml (single source of truth).
     ollama_model: str = Field(min_length=1)
 
+    # Host-run defaults reach the compose MailHog published on 127.0.0.1:1025;
+    # docker-compose.yml sets only SMTP_HOST: mailhog.
+    smtp_host: str = "localhost"
+    smtp_port: int = Field(default=1025, gt=0, lt=65536)
+    # Seconds; aiosmtplib applies it to connect and to each SMTP command.
+    smtp_timeout: float = Field(default=10.0, gt=0)
+    smtp_from: str = "message-router@example.com"
+
 
 @functools.cache
 def get_settings() -> Settings:
