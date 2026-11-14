@@ -478,6 +478,10 @@ docker compose ps --format '{{.Service}}: {{.Ports}}'
 
 ## Open questions
 
+None block stage 2. Items 1-4 are deliberately deferred to the stage 3 spec: they depend
+on the agent and endpoint design, and stage 2's interface (`ValueError`,
+`EmailDeliveryError`, `normalize_requester_email`) already supports every option.
+
 1. **Stage 3 tool shape:** expose only `department` to the model and bind
    `requester_email`, `message` and `settings` per request (a closure-built tool or
    LangChain's injected-argument mechanism). Check the installed LangChain version's
@@ -489,8 +493,8 @@ docker compose ps --format '{{.Service}}: {{.Ports}}'
 3. **Stage 3 error mapping:** the HTTP status for `EmailDeliveryError` (502 or 503),
    and whether the agent may call the tool again after a delivery failure (risk of
    duplicate emails).
-4. **Total send budget:** aiosmtplib's timeout is per operation. If stage 3 sets an
-   overall request deadline, wrap the call in `asyncio.timeout`.
-5. **CI e2e cost:** the MailHog pull is 145.5 MB, not the ~7 MB assumed when this was
-   decided. If CI time becomes a problem, drop the CI step (D9) and keep the e2e test
-   local only.
+4. **Total send budget:** aiosmtplib's timeout is per operation. Stage 3 should set one
+   request-level deadline around the whole agent run (`asyncio.timeout`), since LLM
+   latency dominates; no change to the mailer is needed.
+5. **CI e2e cost:** resolved. The MailHog pull is 145.5 MB (not ~7 MB). Decided: keep the
+   email e2e test in CI (D9).
