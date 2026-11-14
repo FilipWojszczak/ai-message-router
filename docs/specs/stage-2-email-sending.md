@@ -94,6 +94,13 @@ Verified behaviour:
 | `żółw@example.com` | rejected (non-ASCII local part; MailHog has no SMTPUTF8) |
 | `jan@bücher.de` | accepted; `.ascii_email` gives the punycode domain |
 | `jan@localhost`, `jan@x.test`, `jan@x.local` | rejected |
+| `=?utf-8?q?a=40evil.com=2C_b?=@example.com` | accepted by email-validator; rejected by our `=?` check |
+
+- RFC 2047 encoded words (`=?…?=`) are a legal local part, but `EmailMessage` decodes
+  them when the header is set, turning one validated address into another address, a
+  list or a display name (found in review, reproduced). So `normalize_requester_email`
+  also rejects `=?`, and `build_message` checks that `Reply-To` parses back to exactly
+  the validated address.
 
 - `EmailNotValidError` subclasses `ValueError`. `check_deliverability=False` means no
   DNS lookups, so it works offline.
@@ -350,7 +357,7 @@ None. No database. MailHog keeps messages in memory and loses them on restart.
     as with 8000 and 8025.
 14. **The requester is never an envelope recipient** (D7), so no copy goes to them.
 15. **The e2e test runs while a person is using MailHog, or other emails exist**:
-    isolated by a unique token, and the test deletes only its own message.
+    isolated by the unique Message-ID, and the test deletes only its own message.
 
 ## Test plan
 
@@ -395,8 +402,10 @@ e2e tests (`@pytest.mark.e2e`; need MailHog running; run locally and in CI) in
    - Act: `await send_department_email(Department.IT, ..., settings=Settings(ollama_model="unused"))`.
      Explicit kwargs override only the model, so `SMTP_*` still come from the defaults
      or the environment.
-   - Find: poll `GET /api/v2/search?kind=containing&query=<token>` (up to ~5 s, 0.1 s
-     interval) with httpx2's async client. Expect exactly one item. Delete it in a
+   - Find: poll `GET /api/v2/search?kind=containing&query=<returned Message-ID>` (up
+     to ~5 s, 0.1 s interval) with httpx2's async client. Not by the token: the body
+     is base64 and MailHog's search doesn't decode it (verified: 0 hits by body token,
+     1 by Message-ID). Expect exactly one item. Delete it in a
      fixture finalizer with `DELETE /api/v1/messages/{ID}`. **Never**
      `DELETE /api/v1/messages`, which would wipe the inbox someone may be looking at.
    - Assert, after parsing `Raw.Data` with

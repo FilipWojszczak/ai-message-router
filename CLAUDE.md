@@ -55,6 +55,8 @@ is required, not optional). Emails are captured by MailHog.
 - Single test: `uv run pytest tests/path/test_file.py::test_name -x -q`
 - All pre-commit hooks: `uv run pre-commit run --all-files`
 - e2e tests (need the running stack): `uv run pytest -m e2e -q`
+- Email e2e only (needs only MailHog):
+  `docker compose up -d --wait mailhog && uv run pytest -m e2e tests/e2e/test_email.py -q`
 
 Docker:
 
@@ -67,7 +69,8 @@ Docker:
 - Validate compose: `docker compose config -q`
 - Stop, keeping the model: `docker compose down`
 - Stop and **delete the downloaded model**: `docker compose down -v`
-- Host run (uses the native Ollama on `localhost:11434`; no SMTP):
+- Host run (uses the native Ollama on `localhost:11434`; SMTP goes to the compose
+  MailHog on `localhost:1025` if it is running):
   `OLLAMA_MODEL=qwen3:0.6b uv run uvicorn message_router.main:app --reload`
 
 There are no `llm` tests in this project: the only model is local Ollama, used by `e2e` tests.
