@@ -21,6 +21,7 @@ services:
     environment:
       OLLAMA_URL: *ollama-url
       OLLAMA_MODEL: *ollama-model
+      SMTP_HOST: mailhog             # SMTP_PORT: 1025 is the Settings default
     depends_on:
       ollama:
         condition: service_healthy
@@ -41,7 +42,8 @@ services:
     image: mailhog/mailhog:v1.0.1
     platform: linux/amd64          # amd64-only image; emulated on Apple Silicon
     ports:
-      - "127.0.0.1:8025:8025"      # UI + HTTP API; SMTP 1025 stays internal
+      - "127.0.0.1:8025:8025"      # UI + HTTP API
+      - "127.0.0.1:1025:1025"      # SMTP, for host runs and host e2e tests
     healthcheck:
       # SMTP (what the API needs) and the UI/API (what you and e2e tests need).
       test: ["CMD-SHELL", "nc -z localhost 1025 && wget -q --spider http://localhost:8025/api/v2/messages"]
