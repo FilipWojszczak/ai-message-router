@@ -57,6 +57,15 @@ is required, not optional). Emails are captured by MailHog.
 - e2e tests (need the running stack): `uv run pytest -m e2e -q`
 - Email e2e only (needs only MailHog):
   `docker compose up -d --wait mailhog && uv run pytest -m e2e tests/e2e/test_email.py -q`
+- Routing e2e only (needs the full stack and the model; not in CI):
+  `docker compose up -d --wait && uv run pytest -m e2e tests/e2e/test_routing.py -q`
+- Sample request (the email shows up in MailHog at `http://localhost:8025`):
+
+  ```bash
+  curl -s -X POST http://localhost:8000/api/v1/messages \
+    -H 'Content-Type: application/json' \
+    -d '{"email": "jan.nowak@example.com", "message": "I forgot my password and cannot log in"}'
+  ```
 
 Docker:
 

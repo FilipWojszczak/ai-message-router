@@ -5,65 +5,21 @@ Needs only MailHog: `docker compose up -d --wait mailhog`.
 
 import asyncio
 import socket
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from email import message_from_string, policy
 from email.message import EmailMessage
-from typing import Any
 from uuid import uuid4
 
 import aiosmtplib
-import httpx2
 import pytest
 
 from message_router.config import Settings
 from message_router.departments import Department
 from message_router.mailer import EmailDeliveryError, send_department_email
+from tests.e2e.conftest import MailHog, normalize_body
 
 pytestmark = pytest.mark.e2e
 
-MAILHOG_URL = "http://localhost:8025"
 REQUESTER = "jan.nowak@example.com"
-
-
-@dataclass
-class MailHog:
-    """MailHog HTTP API client that remembers which messages the test created."""
-
-    client: httpx2.AsyncClient
-    created: list[str] = field(default_factory=list)
-
-    async def find(self, message_id: str) -> list[dict[str, Any]]:
-        """Poll for messages whose raw text contains ``message_id`` (up to ~5 s).
-
-        Searches by the Message-ID header, not by a body token: the body is base64
-        (MailHog has no 8BITMIME) and MailHog's search doesn't decode it.
-        """
-        params = {"kind": "containing", "query": message_id.strip("<>")}
-        for _ in range(50):
-            response = await self.client.get("/api/v2/search", params=params)
-            response.raise_for_status()
-            if items := response.json()["items"]:
-                self.created.extend(item["ID"] for item in items)
-                return items
-            await asyncio.sleep(0.1)
-        return []
-
-
-@pytest.fixture
-async def mailhog() -> AsyncIterator[MailHog]:
-    async with httpx2.AsyncClient(base_url=MAILHOG_URL) as client:
-        mailhog = MailHog(client)
-        yield mailhog
-        # Delete only this test's messages, never `DELETE /api/v1/messages`, which
-        # would wipe the inbox someone may be looking at.
-        for message_id in mailhog.created:
-            await client.delete(f"/api/v1/messages/{message_id}")
-
-
-def _normalize_body(text: str) -> str:
-    """CRLF on the wire and the final newline added by set_content don't count."""
-    return text.replace("\r\n", "\n").removesuffix("\n")
 
 
 async def test_email_delivered_to_mailhog(mailhog: MailHog) -> None:
@@ -89,7 +45,7 @@ async def test_email_delivered_to_mailhog(mailhog: MailHog) -> None:
     assert parsed["Subject"] == f"[message-router] Message from {REQUESTER}"
     assert parsed["Message-ID"] == message_id
     assert "Bcc" not in parsed
-    assert _normalize_body(parsed.get_content()) == _normalize_body(message)
+    assert normalize_body(parsed.get_content()) == normalize_body(message)
     assert item["Raw"]["To"] == ["it@example.com"]
     assert item["Raw"]["From"] == settings.smtp_from
 

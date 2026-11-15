@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     # Required; the default lives only in docker-compose.yml (single source of truth).
     ollama_model: str = Field(min_length=1)
+    # Seconds; the deadline for the whole agent run (model call + the tool's send),
+    # also passed to the Ollama HTTP client.
+    ollama_timeout: float = Field(default=60.0, gt=0)
+    # False turns off qwen3-style "thinking" (5-10x slower, no routing benefit seen).
+    ollama_reasoning: bool = False
+    # Cap on generated tokens. A tool call needs ~25 (thinking on: up to ~225 seen);
+    # without a cap a rambling model holds Ollama until the deadline (504) instead of
+    # ending early and falling back to other@.
+    ollama_num_predict: int = Field(default=512, gt=0)
 
     # Host-run defaults reach the compose MailHog published on 127.0.0.1:1025;
     # docker-compose.yml sets only SMTP_HOST: mailhog.
