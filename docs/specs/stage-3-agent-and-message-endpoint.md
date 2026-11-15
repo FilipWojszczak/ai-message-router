@@ -695,6 +695,37 @@ OLLAMA_MODEL=qwen3:0.6b uv run uvicorn message_router.main:app --reload
 1. **Routing accuracy of `qwen3:0.6b`** (stage 4): only the password-reset message
    reliably reached help-desk@ in the probe; "broken computer", "printer" and "urlop"
    went elsewhere. The e2e test must be rechecked with the final prompt wording.
+
+   **Implementation finding (2026-11-15):** with the implemented `SYSTEM_PROMPT` (the
+   indicative wording above), `qwen3:0.6b` almost never returns a real tool call, so
+   every request falls back to other@. Measured through `ChatOllama` and through raw
+   `/api/chat` (same result), at temperature 0, 7 messages × 2 samples:
+   - thinking off: 0/14 tool calls. The model echoes the `<message>` block, writes a
+     fake `<tools>{"name": ...}` as text, or answers `<no_tool>`;
+   - thinking on: 3/14 tool calls, 2–3 s and 110–225 output tokens each;
+   - five prompt variants (no tags, plain user turn, minimal prompt, an extra "always
+     call the tool" rule, an instruction line in the user turn): at most 1/6.
+
+   Follow-up checks (raw `/api/chat`, thinking off unless noted):
+   - **No truncation:** the Ollama log shows `n_ctx = 4096`, prompts of 414–421 tokens
+     and `truncated = 0` on every request.
+   - **Not the tool definition:** with the same prompt, LangChain's tool definition
+     (the `department` description comes from the `Department` docstring), one with no
+     parameter description, and one with a clearer description each gave 0/14.
+   - **The plumbing works:** with no system prompt,
+     `Send this to the help desk: I forgot my password.` and
+     `Call send_email with department it@example.com.` returned real `tool_calls`
+     (help-desk@, it@), with thinking off and on.
+     `I forgot my password and cannot log in` got a prose refusal in both modes.
+
+   Conclusion: the model calls the tool when the user turn names the target, but it
+   can't classify the message and call the tool from system-prompt instructions. With
+   a routing system prompt it imitates the surrounding XML-like tags (`<message>`,
+   `<tools>`) instead of emitting the template's `<tool_call>`. The spec's earlier
+   4/4 result could not be reproduced; its probe prompt was not kept, and results
+   also varied between runs at temperature 0. Stage 3 ships the mechanics;
+   `tests/e2e/test_routing.py` is marked `xfail` until stage 4 picks a model able to
+   do this (prompt tuning for the 0.6B model is not expected to be enough).
 2. **Prompt injection resistance** (stage 4): the 0.6B model followed an injected
    department choice. Add injection cases to the labeled set; the structural limits (D10)
    stay regardless of the model.
