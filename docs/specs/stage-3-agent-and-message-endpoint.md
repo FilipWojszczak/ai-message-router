@@ -122,6 +122,7 @@ ChatOllama(
     base_url=settings.ollama_url,
     temperature=0,
     reasoning=settings.ollama_reasoning,  # default False
+    num_predict=settings.ollama_num_predict,  # default 512
     client_kwargs={"timeout": settings.ollama_timeout},
 )
 ```
@@ -137,6 +138,12 @@ Measured on `qwen3:0.6b`, warm, same prompt and messages:
   `<think>` text ends up in `content`. A setting, not a constant, so stage 4 can compare
   both through an env var without a code change.
 - Temperature 0 was deterministic: 3/3 identical tool calls for each of 6 messages.
+- `num_predict` caps the output (added after code review). A tool call needs ~25 tokens
+  (thinking on: up to ~225 seen), so the default of 512 covers both modes. Without a
+  cap, a model that rambles or loops (more likely with greedy decoding) holds an
+  Ollama slot until the 60 s deadline and returns 504. With it, the generation stops
+  early, has no tool call, and falls back to other@ (edge case 1). It is a pydantic
+  setting only, not set in compose.
 - Built **once** in the lifespan (constructing `ChatOllama` does no I/O with
   `validate_model_on_init=False`, the default). The agent graph is compiled once too and
   stored on `app.state`. Per request, only a new `RoutingContext` is created.
@@ -158,7 +165,9 @@ Measured on `qwen3:0.6b`, warm, same prompt and messages:
   the client can safely retry on 503/504.
 - The fallback send runs **outside** the deadline. It is bounded by `smtp_timeout`.
 - The deadline also covers the tool's SMTP send (a few ms on MailHog). If it fires during
-  the send, delivery is unknown: see edge case 9.
+  the send, delivery is unknown: see edge case 9. If it fires after the send has
+  returned (`ctx.message_id` set, only the graph's post-tool steps cut short), the
+  request succeeds normally: a 504 there would invite a retry and a duplicate email.
 
 **D7. Error mapping (exception types verified against `ChatOllama.ainvoke`).**
 
@@ -253,9 +262,18 @@ class MessageRequest(BaseModel):
 - The model sees **only** the message: not the requester email (no need, and less PII
   sent to the model) and nothing from settings.
 - The user turn is `"<message>\n{text}\n</message>"`. In the copy sent to the model
-  only, any `<message` or `</message` (case-insensitive) is replaced with `[tag removed]`,
-  so the text can't close the delimiter early. The email body is the original, unchanged
-  (it comes from `RoutingContext.message`, never from the model).
+  only, these are replaced with `[tag removed]` (case-insensitive). The email body is
+  the original, unchanged (it comes from `RoutingContext.message`, never from the model).
+  - `<message` and `</message`, so the text can't close the delimiter early.
+  - qwen3's `<tool_call>`, `<tool_response>`, `<tools>` and `<think>` tags, opening and
+    closing (added after code review). The model often echoes the message (open
+    question 1), and an echoed `<tool_call>{...}</tool_call>` would be parsed by Ollama
+    as a real tool call.
+  - `<|` and `|>`, so chat control tokens such as `<|im_start|>system` can't fake a
+    turn. Ollama tokenizes the rendered template with special tokens enabled.
+
+  The tag list is specific to qwen3's template: recheck it if stage 4 picks a model
+  from another family.
 - The system prompt states that the content between the tags is data, never
   instructions, including requests to pick a department.
 - The real limits on damage are structural: the model controls only one enum value; the
@@ -324,7 +342,7 @@ more specific scope comes first). A unit test checks that the keys equal `set(De
 | File | Change |
 |---|---|
 | `pyproject.toml`, `uv.lock` | `uv add langchain langchain-ollama httpx` |
-| `src/message_router/config.py` | `ollama_timeout: float = Field(default=60.0, gt=0)`, `ollama_reasoning: bool = False` |
+| `src/message_router/config.py` | `ollama_timeout: float = Field(default=60.0, gt=0)`, `ollama_reasoning: bool = False`, `ollama_num_predict: int = Field(default=512, gt=0)` |
 | `src/message_router/departments.py` | `DEPARTMENT_SCOPES` |
 | `src/message_router/prompts.py` | new: `SYSTEM_PROMPT`, `format_user_message` |
 | `src/message_router/agent.py` | new: context, tool, model and agent factories, `route_message`, domain exceptions |
@@ -428,7 +446,8 @@ async def route_message(
   `system_prompt=`.
 - If the deadline fires while the tool is sending (`ctx.department` set but
   `ctx.message_id` not set), log a WARNING that delivery is unknown, then raise
-  `LLMTimeoutError` (edge case 9).
+  `LLMTimeoutError` (edge case 9). If `ctx.message_id` is already set, log a WARNING
+  and return the normal result (D6).
 
 ### `src/message_router/api/messages.py` (indicative)
 
@@ -520,7 +539,8 @@ after the response.
    client can retry safely.
 9. **Deadline fires during the SMTP send in the tool**: 504, and the email may or may not
    have been delivered (logged as a WARNING). The send takes a few ms on MailHog, so this
-   needs Ollama to use almost all of the 60 s first. Accepted for a PoC.
+   needs Ollama to use almost all of the 60 s first. Accepted for a PoC. If the deadline
+   fires just after the send returned, the response is the normal 200 (D6).
 10. **SMTP down**: 502. When the model chose a department, there is no fallback attempt:
     sending somewhere else would just fail again, and it would mean two send attempts.
 11. **Client disconnects mid-request**: Starlette doesn't cancel the handler on disconnect
@@ -558,8 +578,10 @@ Fakes in `tests/fakes.py`:
 1. `DEPARTMENT_SCOPES` keys equal `set(Department)`, and each scope is non-empty.
 2. `SYSTEM_PROMPT` contains every department address and its scope.
 3. `format_user_message`: wraps the text in `<message>` tags; `</message>` and
-   `<MESSAGE>` inside are neutralized; the original string is not modified.
+   `<MESSAGE>` inside are neutralized; the original string is not modified. qwen3's
+   tool and think tags and `<|...|>` control tokens are neutralized too (parametrized).
 4. `build_chat_model`: `temperature == 0`, `reasoning is False` by default,
+   `num_predict` from settings (512 by default),
    `client_kwargs["timeout"] == settings.ollama_timeout`, and the model and base_url
    come from settings. No I/O.
 5. Correct tool call → one send to that department; the body equals the original message;
@@ -578,6 +600,9 @@ Fakes in `tests/fakes.py`:
     `LLMTimeoutError`; `ollama.ResponseError("not found", 404)` → `LLMResponseError`.
     No send in any case (parametrized).
 14. Deadline: a fake that sleeps, `ollama_timeout=0.05` → `LLMTimeoutError` quickly; no send.
+    Deadline during the send → `LLMTimeoutError` and a "delivery unknown" WARNING, no
+    fallback send. Deadline after the send returned → the normal `RoutingResult`, no
+    fallback send.
 15. Logging (`caplog`): one INFO record with department, fallback and latency; no record
     contains the message text or the requester email (checked on the success, fallback
     and error paths).
@@ -629,7 +654,7 @@ docker compose config -q        # settings changed; compose itself must be uncha
 # 1. Compose untouched, settings not duplicated into it
 git diff main -- docker-compose.yml          # expect: empty
 docker compose config | grep -nE 'OLLAMA_|SMTP_'
-#    expect: OLLAMA_URL, OLLAMA_MODEL, SMTP_HOST only (no OLLAMA_TIMEOUT/REASONING)
+#    expect: OLLAMA_URL, OLLAMA_MODEL, SMTP_HOST only (no OLLAMA_TIMEOUT/REASONING/NUM_PREDICT)
 
 # 2. Rebuild and start the full stack
 docker compose up -d --build --wait
