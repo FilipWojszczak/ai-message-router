@@ -41,21 +41,19 @@ jobs:
       - name: Run tests
         run: uv run pytest -m "not e2e"
 
-      # Only MailHog: no model download, no API build. --wait blocks until healthy,
-      # so pytest can't race the SMTP port.
-      - name: Start MailHog
-        run: docker compose up -d --wait mailhog
-
-      - name: Email e2e test against MailHog
-        run: uv run pytest -m e2e tests/e2e/test_email.py -q
-
-      - name: MailHog logs on failure
-        if: failure()
-        run: docker compose logs mailhog
-
       - name: Validate docker-compose.yml
         run: docker compose config -q # Runs without .env, like a fresh clone
 
-      # Full-stack e2e tests stay out of CI: they need the downloaded model
-      - name: Build API image
-        run: docker compose build api # Catches Dockerfile breakage and uv.lock drift (uv sync --locked)
+      # Builds the API image (catches Dockerfile breakage and uv.lock drift) and starts
+      # api + mailhog + ollama. The API waits for ollama-pull, so the model (~0.5 GB) is
+      # downloaded on every run: expect a few minutes. Only tests that don't call the
+      # model are run here. --wait blocks until healthy, so pytest can't race the ports.
+      - name: Start the stack without the model
+        run: docker compose up -d --build --wait --wait-timeout 600 api # Bounded: ollama-pull has no timeout of its own
+
+      - name: Email and stack smoke e2e tests
+        run: uv run pytest -m e2e tests/e2e/test_email.py tests/e2e/test_stack.py -q
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs
