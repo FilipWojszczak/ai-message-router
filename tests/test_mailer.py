@@ -1,7 +1,5 @@
-from dataclasses import dataclass, field
 from email import message_from_bytes, policy
 from email.message import EmailMessage
-from typing import Any
 
 import aiosmtplib
 import pytest
@@ -13,6 +11,7 @@ from message_router.mailer import (
     build_message,
     send_department_email,
 )
+from tests.fakes import FakeSend
 
 pytestmark = pytest.mark.unit
 
@@ -27,34 +26,6 @@ TRICKY_MESSAGE = (
     "trailing spaces   \n"
     "ostatnia linia"
 )
-
-
-@dataclass
-class FakeSend:
-    """Stands in for ``aiosmtplib.send``: records calls and optionally raises."""
-
-    calls: list[tuple[EmailMessage, dict[str, Any]]] = field(default_factory=list)
-    error: Exception | None = None
-
-    async def __call__(
-        self, message: EmailMessage, **kwargs: Any
-    ) -> tuple[dict[str, Any], str]:
-        self.calls.append((message, kwargs))
-        if self.error is not None:
-            raise self.error
-        return {}, "OK"
-
-
-@pytest.fixture
-def fake_send(monkeypatch: pytest.MonkeyPatch) -> FakeSend:
-    fake = FakeSend()
-    monkeypatch.setattr(aiosmtplib, "send", fake)
-    return fake
-
-
-@pytest.fixture
-def settings() -> Settings:
-    return Settings(ollama_model="test-model")
 
 
 def _normalize_body(text: str) -> str:
