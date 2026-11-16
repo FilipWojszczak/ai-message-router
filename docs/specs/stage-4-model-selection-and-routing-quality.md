@@ -610,6 +610,45 @@ Fresh-clone check of the whole stack is stage 5.
 1. **Eval results replace the probe numbers.** All latency/accuracy figures in D1, D6 and
    External calls come from a 16-call probe. If the full eval contradicts them (e.g.
    4b-instruct < 95% tool calls), D3 applies as written (O1 next), and the D9 retry question gets more weight.
+
+   **Implementation finding (2026-11-16):** the full eval (32 cases × 2 reps) confirmed
+   the expected D3 outcome and corrected several probe figures. Tables, per-model
+   details and raw results are in `docs/evals/`.
+   - **D3:** tool calls `qwen3:0.6b` 3.1% (2/64), `qwen3:1.7b` 54.7% (35/64),
+     `qwen3:4b-instruct-2507-q4_K_M` 96.9% (62/64) with 90.6% accuracy (58/64). Only the
+     instruct model passes every gate. `qwen3:1.7b` followed all injections (6/6).
+   - **D8:** one prompt change. The winner's two misses were one dev case answered with
+     the text `other@example.com` instead of a tool call; the other@ rule now says
+     "call send_email with". After it: tool calls 64/64, accuracy unchanged.
+   - **D9:** no retry (decided after the eval, on the 3.1% miss rate above).
+   - **Probe figures that changed:** the committed long case (1969 chars) is routed to
+     it@, not help-desk@ (the probe's text was not kept); it takes 8.0–8.3 s at 1064
+     prompt tokens (probe: 8.7–9.5 s, 1174). Uncached prompt evaluation is 4.1–4.4 s
+     (probe: 3.05 s); cold load 2.79 s (probe: 2.54 s). On the compose stack the first
+     request after `up` took 5.6 s and the next 1.5 s.
+   - **Holdout:** 81.8% (18/22) against 95.2% (40/42) on dev. `multisport-card-en` goes
+     to other@ and `blue-screen-mixed` to it@; reported, not tuned against.
+
+   Deviations from this spec:
+   - `ollama_num_predict` became 128 before the eval, not after, so the committed
+     results describe the shipped settings.
+   - The set has 32 cases (21 dev + 11 holdout), as tabled in D2, so open question 4's
+     holdout has 11 cases.
+   - A partial-split run writes `<model-slug>.<split>.json` instead of overwriting the
+     full result. The winner's full run before the prompt change is kept as
+     `<model-slug>.prompt-1db9c08be6c5.json`.
+   - `/api/show` returns no digest, so it comes from `/api/tags`. It also lists
+     `thinking` among the instruct tag's capabilities (D1 says it has no thinking mode);
+     no output exceeded 24 tokens.
+   - `RunRecord` also keeps `error` and `done_reason`.
+   - The warm-up in `ollama-pull` also exits cleanly when the connection drops (any
+     `OSError`), not only on an HTTP error or timeout.
+   - The `ollama-pull` script moved out of the inline compose YAML into
+     `docker/ollama_pull.py` (stdlib only, bind-mounted read-only), so ruff and pyright
+     cover it. Offline unit tests against a fake Ollama in `tests/test_ollama_pull.py`
+     run in CI's existing pytest step.
+   - `.github/workflows/ci.yml`: only the model-size comment changed.
+   - Not done: optional O1–O5, and E2E step 10 (cleanup of the eval container).
 2. **Reviewer hardware.** Measurements are from a 16-thread Ryzen with NVMe. On a 4-core
    laptop or Docker Desktop with a 2–4 GB VM memory limit, the 4B model may not load
    (edge case 2) or may be 2–4× slower. The stage 5 README must state the RAM
