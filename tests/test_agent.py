@@ -116,7 +116,12 @@ def test_build_chat_model_uses_settings() -> None:
 
 
 def test_output_is_capped_by_default() -> None:
-    assert build_chat_model(Settings(ollama_model="m")).num_predict == 512
+    assert build_chat_model(Settings(ollama_model="m")).num_predict == 128
+
+
+def test_no_per_request_keep_alive() -> None:
+    # A per-request value would override the server's OLLAMA_KEEP_ALIVE.
+    assert build_chat_model(Settings(ollama_model="m")).keep_alive is None
 
 
 # --- agent path ----------------------------------------------------------------------
