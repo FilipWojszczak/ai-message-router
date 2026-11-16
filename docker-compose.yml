@@ -3,8 +3,9 @@
 
 # Container wiring shared by `api` and `ollama-pull`.
 x-ollama-url: &ollama-url http://ollama:11434
-# The single source of the model-name default (Settings has none).
-x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3:0.6b}
+# The single source of the model-name default (Settings has none). The full tag is
+# pinned on purpose: the short `qwen3:4b` tag now points at a thinking-only build
+x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3:4b-instruct-2507-q4_K_M}
 # Probes run every second during start_period; the first success marks the service healthy.
 x-healthcheck-timing: &healthcheck-timing
   interval: 10s
@@ -51,64 +52,27 @@ services:
 
   ollama:
     image: alpine/ollama:0.40.15     # CPU-only build; port 11434 stays internal
+    environment:
+      # Ollama's own setting (not an app setting): keep the model in RAM (~3.2 GB)
+      # until the stack stops, instead of unloading it after 5 idle minutes.
+      OLLAMA_KEEP_ALIVE: "-1"
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
       test: ["CMD", "ollama", "list"]
       <<: *healthcheck-timing
 
-  # One-shot: makes the `ollama` server pull the model into its volume, then exits.
-  # Same base image as the API, so no extra download. The script must not contain a
-  # dollar sign: Compose would interpolate it from the host shell.
+  # One-shot: makes the `ollama` server pull the model into its volume and load it into
+  # RAM, then exits (docker/ollama_pull.py). `api` waits for it, so the API never starts
+  # before the model is loaded. Same base image as the API, so no extra download; the
+  # script is bind-mounted, not baked into an image.
   ollama-pull:
     image: python:3.14-slim
-    entrypoint: ["python", "-c"]
-    command:
-      - |
-        import json, os, socket, sys, urllib.error, urllib.request
-
-        base = os.environ["OLLAMA_URL"]
-        model = os.environ["OLLAMA_MODEL"]
-
-
-        def post(path, body, timeout):
-            req = urllib.request.Request(
-                base + path,
-                data=json.dumps(body).encode(),
-                headers={"Content-Type": "application/json"},
-            )
-            return urllib.request.urlopen(req, timeout=timeout)
-
-
-        # 1. Already present? /api/show is local, works offline.
-        try:
-            post("/api/show", {"model": model}, timeout=10).close()
-            print(f"Model {model} already present, skipping pull.")
-            sys.exit(0)
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-
-        # 2. Preflight: a pull hangs without internet, so fail fast instead.
-        try:
-            socket.create_connection(("registry.ollama.ai", 443), timeout=5).close()
-        except OSError as e:
-            sys.exit(f"ERROR: model {model} is missing and registry.ollama.ai is unreachable ({e}).")
-
-        # 3. Pull via the server; stream progress, print each new status once.
-        #    No timeout: large models on slow links legitimately take long.
-        print(f"Pulling {model} ...", flush=True)
-        last = None
-        with post("/api/pull", {"model": model}, timeout=None) as resp:
-            for line in resp:
-                msg = json.loads(line)
-                if "error" in msg:
-                    sys.exit(f"ERROR: pull failed: {msg['error']}")
-                if msg.get("status") != last:
-                    last = msg.get("status")
-                    print(last, flush=True)
-        if last != "success":
-            sys.exit(f"ERROR: pull ended without success (last status: {last}).")
+    command: ["python", "/ollama_pull.py"]
+    volumes:
+      # z: relabel for SELinux hosts (Fedora/RHEL), where the container could not read
+      # a file from the clone otherwise; ignored where SELinux is off.
+      - ./docker/ollama_pull.py:/ollama_pull.py:ro,z
     environment:
       OLLAMA_URL: *ollama-url
       OLLAMA_MODEL: *ollama-model
