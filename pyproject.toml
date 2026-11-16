@@ -90,3 +90,7 @@ markers = [
 "tests/**/*.py" = [
   "S101", # asserts
 ]
+# Eval-tooling tests: internal only, outside testpaths (run: uv run pytest evals/tests).
+"evals/tests/**/*.py" = [
+  "S101", # asserts
+]
