@@ -59,6 +59,15 @@ is required, not optional). Emails are captured by MailHog.
   `docker compose up -d --wait mailhog && uv run pytest -m e2e tests/e2e/test_email.py -q`
 - Routing e2e only (needs the full stack and the model; not in CI):
   `docker compose up -d --wait && uv run pytest -m e2e tests/e2e/test_routing.py -q`
+- Eval-tooling tests (internal: outside `testpaths`, not in CI):
+  `uv run pytest evals/tests -q`
+- Model eval (the real `route_message` against a standalone Ollama on
+  `localhost:11434`, no emails sent; setup, results and the routing policy are in
+  `docs/evals/README.md`). `--split all` writes `docs/evals/results/<model>.json`,
+  a partial split writes `<model>.<split>.json`:
+  `uv run python -m evals.run --model qwen3:4b-instruct-2507-q4_K_M [--split dev]`
+- A change to `SYSTEM_PROMPT` or `DEPARTMENT_SCOPES` is a behavior change: tune on the
+  `dev` split only, then log it under "Prompt changes" in `docs/evals/README.md`.
 - Sample request (the email shows up in MailHog at `http://localhost:8025`):
 
   ```bash
@@ -70,17 +79,23 @@ is required, not optional). Emails are captured by MailHog.
 Docker:
 
 - Start the stack: `docker compose up -d` (first run builds the API image and pulls the
-  model: minutes)
+  model, ~2.5 GB: minutes). It returns once `ollama-pull` has also loaded the model
+  into RAM, so the API never starts before the model is ready.
+- The model stays loaded (`OLLAMA_KEEP_ALIVE=-1` on the `ollama` service, ~3.2 GB RAM)
+  until `docker compose down`/`stop`. `docker compose restart ollama` alone does not
+  rerun the warm-up: the first request then pays the load. `docker compose up -d` does.
 - Start and wait until healthy: `docker compose up -d --wait`
 - Rebuild the API after code changes: `docker compose up -d --build api`
 - Status, including the one-shot model pull: `docker compose ps -a`
 - Logs: `docker compose logs -f api`, `docker compose logs ollama-pull`
+- The pull + warm-up one-shot is `docker/ollama_pull.py` (stdlib only), bind-mounted
+  read-only into `ollama-pull`; offline tests in `tests/test_ollama_pull.py`.
 - Validate compose: `docker compose config -q`
 - Stop, keeping the model: `docker compose down`
 - Stop and **delete the downloaded model**: `docker compose down -v`
 - Host run (uses the native Ollama on `localhost:11434`; SMTP goes to the compose
   MailHog on `localhost:1025` if it is running):
-  `OLLAMA_MODEL=qwen3:0.6b uv run uvicorn message_router.main:app --reload`
+  `OLLAMA_MODEL=qwen3:4b-instruct-2507-q4_K_M uv run uvicorn message_router.main:app --reload`
 
 There are no `llm` tests in this project: the only model is local Ollama, used by `e2e` tests.
 

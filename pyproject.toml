@@ -90,3 +90,11 @@ markers = [
 "tests/**/*.py" = [
   "S101", # asserts
 ]
+# Standalone scripts bind-mounted into containers: not a package.
+"docker/*.py" = [
+  "INP001", # no __init__.py
+]
+# Eval-tooling tests: internal only, outside testpaths (run: uv run pytest evals/tests).
+"evals/tests/**/*.py" = [
+  "S101", # asserts
+]

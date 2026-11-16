@@ -45,11 +45,12 @@ jobs:
         run: docker compose config -q # Runs without .env, like a fresh clone
 
       # Builds the API image (catches Dockerfile breakage and uv.lock drift) and starts
-      # api + mailhog + ollama. The API waits for ollama-pull, so the model (~0.5 GB) is
-      # downloaded on every run: expect a few minutes. Only tests that don't call the
-      # model are run here. --wait blocks until healthy, so pytest can't race the ports.
-      - name: Start the stack without the model
-        run: docker compose up -d --build --wait --wait-timeout 600 api # Bounded: ollama-pull has no timeout of its own
+      # api + mailhog + ollama. The API waits for ollama-pull, so the model (~2.5 GB) is
+      # downloaded and loaded into RAM (~3.2 GB) on every run: expect a few minutes.
+      # Only tests that don't call the model are run here. --wait blocks until healthy,
+      # so pytest can't race the ports.
+      - name: Start the stack (model loaded, not exercised)
+        run: docker compose up -d --build --wait --wait-timeout 600 api
 
       - name: Email and stack smoke e2e tests
         run: uv run pytest -m e2e tests/e2e/test_email.py tests/e2e/test_stack.py -q

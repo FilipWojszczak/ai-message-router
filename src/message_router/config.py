@@ -18,10 +18,11 @@ class Settings(BaseSettings):
     ollama_timeout: float = Field(default=60.0, gt=0)
     # False turns off qwen3-style "thinking" (5-10x slower, no routing benefit seen).
     ollama_reasoning: bool = False
-    # Cap on generated tokens. A tool call needs ~25 (thinking on: up to ~225 seen);
-    # without a cap a rambling model holds Ollama until the deadline (504) instead of
-    # ending early and falling back to other@.
-    ollama_num_predict: int = Field(default=512, gt=0)
+    # Cap on generated tokens. A tool call needs ~25; without a cap a rambling model
+    # holds Ollama's single slot until the deadline (504) instead of ending early and
+    # falling back to other@. Thinking does not fit in 128 tokens: with a hybrid model
+    # and OLLAMA_REASONING=true, raise it (e.g. OLLAMA_NUM_PREDICT=1024).
+    ollama_num_predict: int = Field(default=128, gt=0)
 
     # Host-run defaults reach the compose MailHog published on 127.0.0.1:1025;
     # docker-compose.yml sets only SMTP_HOST: mailhog.

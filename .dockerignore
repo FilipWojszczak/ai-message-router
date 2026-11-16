@@ -29,6 +29,9 @@ docs/
 # tests, related fixtures and utils
 tests/
 
+# model evaluation tooling (not part of the shipped package)
+evals/
+
 # Claude Code
 .claude/
 CLAUDE.md
