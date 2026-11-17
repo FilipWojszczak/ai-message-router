@@ -10,7 +10,7 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import httpx
 import ollama
@@ -18,7 +18,7 @@ from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware.types import InputAgentState, OutputAgentState
 from langchain.tools import ToolRuntime, tool
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph.state import CompiledStateGraph
 
@@ -29,6 +29,9 @@ from message_router.prompts import SYSTEM_PROMPT, format_user_message
 
 # uvicorn configures this logger, so messages show up without extra logging setup.
 logger = logging.getLogger("uvicorn.error")
+
+# Fixed, neutral user text for the startup warm-up; only the prefix before it matters.
+WARMUP_MESSAGE: Final[str] = "Startup warm-up request."
 
 
 class LLMUnavailableError(Exception):
@@ -101,6 +104,37 @@ def build_agent(model: BaseChatModel) -> RouterAgent:
     return create_agent(
         model, [send_email], system_prompt=SYSTEM_PROMPT, context_schema=RoutingContext
     )
+
+
+# The deadline is a parameter, not the caller's asyncio.timeout, because hitting it
+# must be logged and swallowed here like any other warm-up failure.
+async def warm_up_prompt_cache(model: BaseChatModel, *, timeout: float) -> None:  # noqa: ASYNC109
+    """Fill Ollama's prompt prefix cache with the system prompt and tool schema.
+
+    One model call with the same prefix as a real request (create_agent binds the
+    tools the same way); the answer is discarded and the tool never runs, since this
+    is not an agent run. Best-effort: logs and returns on any error.
+    """
+    start = time.perf_counter()
+    messages = [
+        SystemMessage(SYSTEM_PROMPT),
+        HumanMessage(format_user_message(WARMUP_MESSAGE)),
+    ]
+    try:
+        async with asyncio.timeout(timeout):
+            await model.bind_tools([send_email]).ainvoke(messages)
+    # Not BaseException: a CancelledError must propagate. (uvicorn does not cancel the
+    # lifespan on SIGTERM: it defers the exit until startup ends, so ollama_timeout
+    # bounds the wait.)
+    except Exception as exc:
+        # Only the type: the error text may come from Ollama.
+        logger.warning(
+            "Prompt cache warm-up failed: error=%s latency_ms=%d",
+            type(exc).__name__,
+            _elapsed_ms(start),
+        )
+        return
+    logger.info("Prompt cache warmed in %d ms", _elapsed_ms(start))
 
 
 def _last_ai_message(messages: Sequence[AnyMessage]) -> AIMessage | None:

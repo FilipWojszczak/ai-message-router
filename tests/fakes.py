@@ -46,6 +46,7 @@ class ToolCallingFakeModel(GenericFakeChatModel):
     """
 
     received: list[list[BaseMessage]] = Field(default_factory=list)
+    bound_tools: list[Sequence[Any]] = Field(default_factory=list)
     error: Exception | None = None
     delay: float = 0.0
 
@@ -54,6 +55,7 @@ class ToolCallingFakeModel(GenericFakeChatModel):
         self, tools: Sequence[Any], *, tool_choice: str | None = None, **kwargs: Any
     ) -> Runnable[LanguageModelInput, AIMessage]:
         # The base class raises NotImplementedError; the script decides the calls.
+        self.bound_tools.append(list(tools))
         return self
 
     @override

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # falling back to other@. Thinking does not fit in 128 tokens: with a hybrid model
     # and OLLAMA_REASONING=true, raise it (e.g. OLLAMA_NUM_PREDICT=1024).
     ollama_num_predict: int = Field(default=128, gt=0)
+    # One model call at API startup fills Ollama's prompt cache (system prompt + tool
+    # schema), so the first request is as fast as later ones. It blocks startup
+    # (healthy = warm), bounded by ollama_timeout; failures are logged, startup goes on.
+    ollama_warmup: bool = True
 
     # Host-run defaults reach the compose MailHog published on 127.0.0.1:1025;
     # docker-compose.yml sets only SMTP_HOST: mailhog.

@@ -64,8 +64,9 @@ accepts traffic.
 - **D3. Best-effort.** Any `Exception` from the warm-up (Ollama unreachable, model
   missing, timeout, a parsing error) is logged as a WARNING with the exception type only,
   and startup continues. Real requests then behave exactly as today (503/502/504 or a
-  slow first request). `asyncio.CancelledError` (a `BaseException`) is not caught, so a
-  shutdown during startup is not delayed.
+  slow first request). `asyncio.CancelledError` (a `BaseException`) is not caught, so
+  a cancellation propagates. uvicorn itself never cancels the lifespan on a signal
+  (see edge case 6).
 - **D4. Same path as a real request.** The warm-up calls the same `ChatOllama` instance
   the agent uses (same `num_predict`, `temperature`, `reasoning`, client timeout), with
   `.bind_tools([send_email])`, `[SystemMessage(SYSTEM_PROMPT),
@@ -139,8 +140,11 @@ changes.
    the warm-up also pays the weight load (~2.5 s) and then fills the cache. That is a
    bonus, not a goal.
 5. **API restart with a warm Ollama**: the warm-up hits the existing cache entry (~1.5 s).
-6. **Shutdown (SIGTERM) during the warm-up**: `CancelledError` propagates and the process
-   exits promptly.
+6. **Shutdown (SIGTERM/Ctrl+C) during the warm-up**: uvicorn (0.54) only sets a flag on
+   the signal and keeps awaiting the lifespan startup, so the process exits once the
+   warm-up ends: usually within ~5 s, at worst after `ollama_timeout` (60 s). In that
+   case `docker compose down` SIGKILLs `api` after its 10 s grace period. Harmless:
+   no requests are in flight yet.
 7. **Connection refused for a few seconds after the container starts**: already true
    today while uvicorn starts. It is now ~4.5 s longer. `--wait` and the healthcheck
    already cover this.

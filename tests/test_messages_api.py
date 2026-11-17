@@ -33,6 +33,8 @@ type UseModel = Callable[[ToolCallingFakeModel], ToolCallingFakeModel]
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAPI]:
     monkeypatch.setenv("OLLAMA_MODEL", "test-model")
+    # The lifespan would otherwise call the real ChatOllama at startup.
+    monkeypatch.setenv("OLLAMA_WARMUP", "false")
     get_settings.cache_clear()
     yield create_app()
     get_settings.cache_clear()

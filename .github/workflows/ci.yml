@@ -47,9 +47,10 @@ jobs:
       # Builds the API image (catches Dockerfile breakage and uv.lock drift) and starts
       # api + mailhog + ollama. The API waits for ollama-pull, so the model (~2.5 GB) is
       # downloaded and loaded into RAM (~3.2 GB) on every run: expect a few minutes.
-      # Only tests that don't call the model are run here. --wait blocks until healthy,
-      # so pytest can't race the ports.
-      - name: Start the stack (model loaded, not exercised)
+      # API startup then makes one model call to fill Ollama's prompt cache (a few
+      # seconds more). Only tests that don't call the model are run here. --wait blocks
+      # until healthy, so pytest can't race the ports.
+      - name: Start the stack (model loaded and warmed by one call)
         run: docker compose up -d --build --wait --wait-timeout 600 api
 
       - name: Email and stack smoke e2e tests

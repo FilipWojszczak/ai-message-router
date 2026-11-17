@@ -9,6 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from message_router.agent import (
+    WARMUP_MESSAGE,
     LLMResponseError,
     LLMTimeoutError,
     LLMUnavailableError,
@@ -17,6 +18,7 @@ from message_router.agent import (
     build_agent,
     build_chat_model,
     route_message,
+    warm_up_prompt_cache,
 )
 from message_router.config import Settings
 from message_router.departments import DEPARTMENT_SCOPES, Department
@@ -402,3 +404,93 @@ async def test_concurrent_requests_use_separate_contexts(
         "a@example.com",
         "b@example.com",
     }
+
+
+# --- prompt-cache warm-up ------------------------------------------------------------
+
+
+def _tool_names(model: ToolCallingFakeModel) -> list[list[str]]:
+    return [[t.name for t in tools] for tools in model.bound_tools]
+
+
+async def test_warm_up_sends_prompt_and_tool_without_running_it(
+    fake_send: FakeSend,
+) -> None:
+    model = fake_model(tool_call("other@example.com"))
+
+    await warm_up_prompt_cache(model, timeout=5)
+
+    assert model.received == [
+        [
+            SystemMessage(SYSTEM_PROMPT),
+            HumanMessage(format_user_message(WARMUP_MESSAGE)),
+        ]
+    ]
+    assert _tool_names(model) == [["send_email"]]
+    # A model call, not an agent run: the scripted tool call is never executed.
+    assert fake_send.calls == []
+
+
+async def test_warm_up_prefix_matches_the_agent(
+    fake_send: FakeSend, settings: Settings
+) -> None:
+    agent_model = fake_model(tool_call("it@example.com"))
+    warmup_model = fake_model(AIMessage(content="ok"))
+
+    await _route(agent_model, settings)
+    await warm_up_prompt_cache(warmup_model, timeout=5)
+
+    [agent_system, *_] = agent_model.received[0]
+    [warmup_system, *_] = warmup_model.received[0]
+    assert isinstance(agent_system, SystemMessage)
+    assert isinstance(warmup_system, SystemMessage)
+    assert warmup_system.content == agent_system.content
+    assert _tool_names(warmup_model) == _tool_names(agent_model)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("All connection attempts failed"),
+        ollama.ResponseError("model not found", 404),
+        RuntimeError("boom"),
+    ],
+    ids=lambda e: type(e).__name__,
+)
+async def test_warm_up_errors_are_logged_not_raised(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+
+    await warm_up_prompt_cache(raising_model(error), timeout=5)
+
+    [warning] = caplog.records
+    assert warning.levelno == logging.WARNING
+    text = warning.getMessage()
+    assert f"Prompt cache warm-up failed: error={type(error).__name__}" in text
+    assert str(error) not in text
+    assert WARMUP_MESSAGE not in text
+
+
+async def test_warm_up_is_bounded_by_the_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+    start = time.perf_counter()
+
+    await warm_up_prompt_cache(raising_model(delay=1.0), timeout=0.05)
+
+    assert time.perf_counter() - start < 0.5
+    [warning] = caplog.records
+    assert warning.levelno == logging.WARNING
+    assert "error=TimeoutError" in warning.getMessage()
+
+
+async def test_warm_up_logs_success(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+
+    await warm_up_prompt_cache(fake_model(AIMessage(content="ok")), timeout=5)
+
+    [info] = caplog.records
+    assert info.levelno == logging.INFO
+    assert "Prompt cache warmed in" in info.getMessage()

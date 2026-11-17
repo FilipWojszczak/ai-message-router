@@ -191,19 +191,35 @@ the stack stops. Measured on the same machine:
 | `docker compose up -d --build` with an empty model volume | 2 min 23 s (image build, 2.5 GB download, warm-up); returns with the model loaded |
 | `ollama-pull` log | `Model qwen3:4b-instruct-2507-q4_K_M loaded in 2.8 s.` |
 | `ollama ps` | 3.2 GB, 100% CPU, context 4096, until "Forever" |
-| First request after `up` | 5.6 s |
+| First request after `up` | 5.6 s (before the API warm-up; now 1.6 s, see below) |
 | Second request | 1.5 s |
 | First request after `docker compose restart api` | 1.6 s (the model stays loaded) |
 | First request after `docker compose restart ollama` | 7.5 s, no error |
 | `docker compose up -d` after that | reruns `ollama-pull`: no pull, loaded in 2.5 s |
 | `OLLAMA_MODEL=does-not-exist:1b docker compose up -d` | exit code 1, `api` not started, `ERROR: pull failed: pull model manifest: file does not exist` |
 
-The download time depends on the connection. Known gaps, accepted:
+The download time depends on the connection.
 
-- The warm-up loads the weights but not the prompt cache. The first request evaluates
-  the system prompt uncached (about 4 s), so it takes 5.6 s instead of 1.5 s.
-- Restarting only Ollama does not rerun the warm-up. The next request pays the model
+`ollama-pull` loads the weights but not the prompt cache, so the first request used to
+evaluate the system prompt and tool schema uncached (about 4 s of prefill). The API now
+makes one model call at startup with the same prompt prefix (`warm_up_prompt_cache`,
+`OLLAMA_WARMUP`, default on) and becomes healthy only after it. Measured after
+`docker compose restart ollama` + `docker compose up -d --build --wait api`:
+
+| Step | Before | After |
+|---|---|---|
+| Startup warm-up (`Prompt cache warmed in`) | none | 4.6 s, startup only |
+| First request after `up` | 5.6 s | 1.6 s |
+| Warm-up after `docker compose restart api` | none | 1.5 s (cache already warm) |
+
+If the warm-up fails or hits `OLLAMA_TIMEOUT`, it logs a WARNING and the API starts
+anyway; the first request is then slow, as before.
+
+Known gaps, accepted:
+
+- Restarting only Ollama does not rerun either warm-up. The next request pays the model
   load and the uncached prompt (7.5 s), well inside the 60 s deadline.
+  `docker compose up -d` or restarting `api` warms it again.
 - If the model cannot be loaded, `ollama-pull` exits with Ollama's own message (for
   example "model requires more system memory") and `docker compose up -d` fails before
   the API starts. This path, including the 300 s load timeout (shortened in the test),
